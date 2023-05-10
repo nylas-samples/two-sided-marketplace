@@ -28,20 +28,6 @@ Nylas.config({
   apiServer: process.env.NYLAS_API_SERVER,
 });
 
-// Before we start our backend, we should register our frontend as a
-// redirect URI to ensure the auth completes
-// TODO: Remove this code
-const CLIENT_URI =
-  process.env.CLIENT_URI || `http://localhost:${process.env.PORT || 3000}`;
-Nylas.application({
-  redirectUris: [CLIENT_URI],
-}).then((applicationDetails) => {
-  console.log(
-    'Application registered. Application Details: ',
-    JSON.stringify(applicationDetails)
-  );
-});
-
 // Start the Nylas webhook
 openWebhookTunnel({
   // Handle when a new message is created (sent)
@@ -57,48 +43,6 @@ openWebhookTunnel({
   },
 }).then((webhookDetails) => {
   console.log('Webhook tunnel registered. Webhook ID: ' + webhookDetails.id);
-});
-
-// '/nylas/generate-auth-url': This route builds the URL for
-// authenticating users to your Nylas application via Hosted Authentication
-// TODO: Remove this code
-app.post('/nylas/generate-auth-url', async (req, res) => {
-  const { body } = req;
-
-  const authUrl = Nylas.urlForAuthentication({
-    loginHint: body.email_address,
-    redirectURI: (CLIENT_URI || '') + body.success_url,
-    scopes: [Scope.Calendar],
-  });
-
-  return res.send(authUrl);
-});
-
-// '/nylas/exchange-mailbox-token': This route exchanges an authorization
-// code for an access token
-// and sends the details of the authenticated user to the client
-// TODO: Remove this code
-app.post('/nylas/exchange-mailbox-token', async (req, res) => {
-  const body = req.body;
-
-  const { accessToken, emailAddress } = await Nylas.exchangeCodeForToken(
-    body.token
-  );
-
-  // Normally store the access token in the DB
-  console.log('Access Token was generated for: ' + emailAddress);
-
-  // TODO: Replace this with actual database
-  const user = await mockDb.createOrUpdateUser(emailAddress, {
-    accessToken,
-    emailAddress,
-  });
-
-  // Return an authorization object to the user
-  return res.json({
-    id: user.id,
-    emailAddress: user.emailAddress,
-  });
 });
 
 // Middleware to check if the user is authenticated
@@ -123,39 +67,14 @@ async function isAuthenticated(req, res, next) {
   next();
 }
 
-// Add route for getting a calendar events
-// app.get('/nylas/read-event', isAuthenticated, (req, res) => {
-//   route.readEvent(req, res)
-// });
-
 app.get('/appointments/:id', isAuthenticated, (req, res) => {
   route.readEvent(req, res)
 });
-
-// app.get('/users/appointments', isAuthenticated, (req, res) => {
-//   route.readEvent(req, res)
-// });
-
-// Add route for getting 20 latest calendar events
-// app.get('/nylas/read-events/:userId', isAuthenticated, (req, res) => {
-//   route.readEvents(req, res)
-// });
 
 app.get('/users/:userId/appointments', isAuthenticated, (req, res) => {
   route.readEvents(req, res)
 });
 
-// Add route for getting 20 latest calendar events
-// app.get('/nylas/read-calendars', isAuthenticated, (req, res) =>
-//   route.readCalendars(req, res)
-// );
-
-// Add route for creating calendar events
-// app.post('/nylas/create-events', isAuthenticated, (req, res) =>
-//   route.createEvents(req, res)
-// );
-
-// Add route for creating calendar events
 app.post('/appointments', isAuthenticated, (req, res) =>
   route.createEvents(req, res)
 );
