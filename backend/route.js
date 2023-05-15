@@ -10,32 +10,76 @@ const mockDb = require('./utils/mock-db');
 exports.readEvent = async (req, res) => {
   const user = res.locals.user;
   const eventId = req.params.id;
+  let { accessToken } = user;
 
-  const events = await Nylas.with(user.accessToken)
+  // TODO: Place logic as part of a middleware instead of using everywhere
+
+  if(user.userType === 'patient') {
+    const { providerId } = user.events.find(event => event.id === eventId);
+    const provider = await mockDb.findUser(providerId);
+    accessToken = provider.accessToken;
+  }
+
+  const events = await Nylas.with(accessToken)
     .events.find(eventId)
     .then((events) => events);
 
   return res.json(events);
 };
 
-// TODO: Reconsider refactoring to simplify the logic and be modular
-exports.readEvents = async (req, res, options = {}) => {
-  const userId = req.params.userId;
+exports.readProviderEvents = async (req, res, options = {}) => {
+  let events = []
+
   const user = res.locals.user;
 
-  // const { calendarId, startsAfter, endsBefore, limit } = req.query;
-  let searchOptions = {};
+  if (user.userType === 'provider') {
+    events = await Nylas.with(accessToken)
+      .events.find(eventId)
+      .then((events) => events);
+  } 
+  
+  if (user.userType === 'patient' && options.searchAvailability) {
+    const { startsAfter, endsBefore, limit } = req.query;
 
-  // TODO: Revisit logic
-  if (options.searchAvailability) {
-    searchOptions.busy = false;
-  } else {
-    searchOptions.metadata_pair = options.isProvider ? { 'providerId' : userId } : { 'userId' : userId }
+    const searchOptions = {
+      // startsAfter,
+      // endsBefore, 
+      limit,
+      busy: false,
+    }
+
+    const provider = await mockDb.findUser(req.params.id);
+    events = await Nylas.with(provider.accessToken)
+      .events.list(searchOptions)
+      .then((events) => events);
   }
 
-  const events = await Nylas.with(user.accessToken)
-    .events.list(searchOptions)
-    .then((events) => events);
+  return res.json(events);
+}
+
+exports.readEvents = async (req, res) => {
+  const userId = req.params.userId;
+  let events = [];
+
+  const { events: userEvents } = await mockDb.findUser(userId);
+
+  const providerDetails = await Promise.all(userEvents.map(async event => {
+    const provider = await mockDb.findUser(event.providerId);
+
+    return {
+      id: event.id,
+      accessToken: provider.accessToken,
+    }
+  }));
+
+  events = await Promise.all(providerDetails.map(async provider => {
+    const { accessToken, id } = provider;
+    const event = await Nylas.with(accessToken)
+      .events.find(id)
+      .then((events) => events);
+
+    return event;
+  }));
 
   return res.json(events);
 };
@@ -51,24 +95,18 @@ exports.readCalendars = async (req, res) => {
   return res.json(calendars);
 };
 
-// We need to separate or clarify this based on type of user
 exports.createEvents = async (req, res, options = {}) => {
   const user = res.locals.user;
-  const provider = res.locals.provider;
-
+  
   const {
-    // calendarId,
     title, 
     description, 
     startTime, 
-    endTime, 
-    participants,
-    // NOTE: ProviderId is required to retrieve the provider details
-    // providerId,
+    endTime,
+    providerId,
   } = req.body;
 
-  // TODO: Do we need to consider storing events for the patient (in its own calendar)?
-
+  const provider = await mockDb.findUser(providerId);
   const { calendarId } = provider;
 
   if (!provider || !title || !startTime || !endTime) {
@@ -78,7 +116,6 @@ exports.createEvents = async (req, res, options = {}) => {
     });
   }
 
-  // TODO: Duplicate logic, refactor
   const nylas = Nylas.with(provider.accessToken);
   const event = new Event(nylas);
 
@@ -90,40 +127,24 @@ exports.createEvents = async (req, res, options = {}) => {
   // NOTE: Setting free/busy to search for availability of provider
   event.busy = options.setAvailability ? false : true;
 
-  // TODO: Storing as metadata for quick retrieve of information
   event.metadata = {
     providerId: provider.id,
     userId: user.id
   }
+  
+  const savedEvent = await event.save();
 
-  // TODO: Re-consider if we need pariticipants
-  if (participants) {
-    event.participants = participants
-      .split(/\s*,\s*/)
-      .map((email) => ({ email }));
-  }
+  await mockDb.updateUser(user.id, {
+    events: [
+      ...user.events, 
+      {
+        id: savedEvent.id,
+        providerId: provider.id,
+      }
+    ]
+  })
 
-  // console.log(103, event);
-
-  await event.save();
-
-  // NOTE: Save calendar event in user/patient virtual calendar as well
-  if(!options.setAvailability) {
-    const nylasUserInstance = Nylas.with(user.accessToken);
-    let event2 = new Event(nylasUserInstance);
-    event2.calendarId = user.calendarId;
-    event2.title = title;
-    event2.description = description;
-    event2.when.startTime = startTime;
-    event2.when.endTime = endTime;
-
-    event2.metadata = {
-      providerId: provider.id,
-      userId: user.id
-    }
-    await event2.save();
-  }
-  return res.json(event);
+  return res.json(savedEvent);
 };
 
 // TODO: Refactor logic into utilitiy functions for re-use
@@ -158,14 +179,17 @@ exports.signup = async (req, res) => {
 
     const savedCalendar = await calendar.save()
 
+    const nylasAccount = await nylasClient.account.get();
+
     // TODO: Replace this with actual database
     const user = await mockDb.createOrUpdateUser(publicId, {
       accessToken,
       emailAddress: publicId,
       username,
-      accountId,
+      accountId: nylasAccount.id,
       calendarId: savedCalendar.id,
       userType: userType || 'patient',
+      events: [],
     });
 
     const feedClient = connect(
@@ -197,4 +221,116 @@ exports.signup = async (req, res) => {
       console.log(err);
       res.status(500).json({ message: err });
   }
+}
+
+exports.readUser = async (req, res) => {
+  // TODO: Limit to the user to request this information
+  const userId = req.params.userId;
+  const user = res.locals.user;
+
+  // console.log(userId);
+  // if (user.id !== userId) {
+    // return res.status(401).json('Unauthorized');
+  // }
+
+  Nylas.config({
+    clientId: process.env.NYLAS_CLIENT_ID, 
+    clientSecret: process.env.NYLAS_CLIENT_SECRET,
+    apiServer: process.env.NYLAS_API_SERVER,
+  })
+
+  const account = await Nylas.accounts.find(user.accountId).then((user) => user);
+
+  // TODO: Check what is returned, see if you need to augment with datastore
+  return res.json(account);
+}
+
+exports.readProviders = async (req, res) => {
+  const user = res.locals.user;
+  
+  const data = await mockDb.findProviders();
+
+  // TODO: Consider storing and returning additional provider details
+  const providers = data.map(provider => ({
+    id: provider.id,
+    username: provider.username,
+    emailAddress: provider.emailAddress
+  }))
+
+  return res.json(providers);
+}
+
+// TODO: Restrict to admin
+exports.deleteUser = (req, res) => {
+  const userId = req.params.userId;
+
+  Nylas.config({
+    clientId: process.env.NYLAS_CLIENT_ID, 
+    clientSecret: process.env.NYLAS_CLIENT_SECRET,
+  });
+
+  const result = Nylas.accounts.delete('{id}').then(result => result);
+
+  return res.json(result);
+}
+
+exports.deleteEvent = async (req, res) => {
+  const user = res.locals.user;
+  const eventId = req.params.eventId;
+  let accessToken = user.accessToken
+
+  if(user.userType === 'patient') {
+    const { providerId } = user.events.find(event => event.id === eventId);
+    const provider = await mockDb.findUser(providerId);
+    accessToken = provider.accessToken;
+  }
+
+  let nylas = Nylas.with(user.accessToken);
+
+  const result = await nylas.events.delete([eventId]).then(result => result);
+
+  const updatedEvents = user.events.filter(event => event.id !== eventId);
+
+  await mockDb.updateUser(user.id, {
+    events: updatedEvents
+  })
+
+  return res.json(result);
+}
+
+exports.updateEvent = async (req, res) => {
+  const user = res.locals.user;
+
+  const {
+    id,
+    title, 
+    description, 
+    startTime, 
+    endTime, 
+    metadata,
+  } = req.body;
+
+  let accessToken = user.accessToken
+
+  if(user.userType === 'patient') {
+    const { providerId } = user.events.find(event => event.id === eventId);
+    const provider = await mockDb.findUser(providerId);
+    accessToken = provider.accessToken;
+  }
+
+  let nylas = Nylas.with(user.accessToken);
+
+  const event = nylas.events.find(id).then((event) => event);
+
+  const updatedEvent = {
+    ...event,
+    title,
+    description,
+    startTime,
+    endTime,
+  }
+
+  const result = nylas.events.save([updatedEvent]).then(result => result);
+
+  return res.json(result);
 }

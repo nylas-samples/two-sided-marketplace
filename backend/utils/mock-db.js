@@ -27,7 +27,15 @@ class MockDB {
   async findUser(id, emailAddress) {
     const jsonRecords = await this.getJSONRecords();
     return jsonRecords.find(
-      (r) => r.emailAddress === emailAddress || r.id === id || r.providerId === id
+      (r) => r.emailAddress === emailAddress || r.id === id
+    );
+  }
+
+  // Logic to find data
+  async findProviders() {
+    const jsonRecords = await this.getJSONRecords();
+    return jsonRecords.filter(
+      (r) => r.userType === 'provider'
     );
   }
 
@@ -51,11 +59,11 @@ class MockDB {
   }
 
   // Logic to add data
-  async createUser(payload) {
+  async createUser(id, payload) {
     const jsonRecords = await this.getJSONRecords();
 
     const user = {
-      id: uuidv4(),
+      id,
       ...payload,
     };
     // Adding new record
@@ -76,7 +84,7 @@ class MockDB {
     if (record) {
       return await this.updateUser(record.id, attributes);
     } else {
-      return await this.createUser(attributes);
+      return await this.createUser(id, attributes);
     }
   }
 }

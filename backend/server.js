@@ -54,7 +54,7 @@ async function isAuthenticated(req, res, next) {
 
   // Query our mock db to retrieve the stored user access token
   const user = await mockDb.findUser(req.headers.authorization);
-  const provider = await mockDb.findUser(req.body.providerId);
+  // const provider = await mockDb.findUser(req.body.providerId);
 
   if (!user) {
     return res.status(401).json('Unauthorized');
@@ -62,7 +62,7 @@ async function isAuthenticated(req, res, next) {
 
   // Add the user to the response locals
   res.locals.user = user;
-  res.locals.provider = provider;
+  // res.locals.provider = provider;
 
   next();
 }
@@ -73,6 +73,22 @@ app.get('/appointments/:id', isAuthenticated, (req, res) => {
 
 app.get('/users/:userId/appointments', isAuthenticated, (req, res) => {
   route.readEvents(req, res)
+});
+
+app.get('/users/:userId', isAuthenticated, (req, res) => {
+  route.readUser(req, res)
+});
+
+app.get('/providers/:userId', isAuthenticated, (req, res) => {
+  route.readUser(req, res)
+});
+
+app.get('/providers', isAuthenticated, (req, res) => {
+  route.readProviders(req, res)
+});
+
+app.delete('/users/:userId', isAuthenticated, (req, res) => {
+  route.readUser(req, res)
 });
 
 app.post('/appointments', isAuthenticated, (req, res) =>
@@ -88,11 +104,11 @@ app.post('/providers/availability', isAuthenticated, (req, res) =>
 );
 
 app.get('/providers/:id/availability', isAuthenticated, (req, res) =>
-  route.readEvents(req, res, { searchAvailability: true })
+  route.readProviderEvents(req, res, { searchAvailability: true })
 );
 
 app.get('/providers/:id/appointments', isAuthenticated, (req, res) =>
-  route.readEvents(req, res, { isProvider: true })
+  route.readProviderEvents(req, res)
 )
 
 // Start listening on port 9000
