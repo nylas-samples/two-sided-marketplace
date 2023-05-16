@@ -215,6 +215,7 @@ exports.signup = async (req, res) => {
       chatToken,
       username,
       userId: publicId,
+      userType: user.userType,
     })
 
   } catch (err) {
