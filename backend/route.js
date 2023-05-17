@@ -157,8 +157,13 @@ exports.login = async (req, res) => {
     db.get("SELECT * FROM users WHERE user_id = ?", [userId], async (err, row) => {
       const hashed_password = bcrypt.hashSync(password, row.salt);
 
+      if (err) {
+        res.status(500).json({ message: err });
+        return;
+      }
       if (hashed_password !== row.hashed_password) {
-        return res.status(401).json('Unauthorized');
+        res.status(401).json('Unauthorized');
+        return;
       }
   
       const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
@@ -207,59 +212,64 @@ exports.signup = async (req, res) => {
     const sql =
     "INSERT INTO users (user_id, hashed_password, public_id, user_type, salt) VALUES (?,?,?,?,?)";
     const params = [userId, hashed_password, publicId, userType, salt];
-    db.run(sql, params)
-
-    const { code } = await Nylas.connect.authorize({
-      name: "Virtual Calendar",
-      emailAddress: publicId,
-      clientId: process.env.NYLAS_CLIENT_ID,
-    });
-
-    const { accessToken, account_id: accountId } = await Nylas.exchangeCodeForToken(code);
-
-    console.log('Access Token was generated for: ' + username);
-
-    const nylasClient = Nylas.with(accessToken);
-
-    const calendar = new Calendar(nylasClient, {
-      name: "My New Calendar",
-      description: "Description of my new calendar",
-      location: "Location description",
-      timezone: "America/Los_Angeles",
-      metadata: {
-        test: "true",
+    db.run(sql, params, async function (err, result) {
+      if (err) {
+        res.status(500).json({ message: err });
+        return;
       }
-    })
+      
+      const { code } = await Nylas.connect.authorize({
+        name: "Virtual Calendar",
+        emailAddress: publicId,
+        clientId: process.env.NYLAS_CLIENT_ID,
+      });
 
-    const savedCalendar = await calendar.save()
+      const { accessToken, account_id: accountId } = await Nylas.exchangeCodeForToken(code);
 
-    const nylasAccount = await nylasClient.account.get();
+      console.log('Access Token was generated for: ' + username);
 
-    // TODO: Replace this with actual database
-    const user = await mockDb.createOrUpdateUser(publicId, {
-      accessToken,
-      emailAddress: publicId,
-      username,
-      accountId: nylasAccount.id,
-      calendarId: savedCalendar.id,
-      userType: userType || 'patient',
-      events: [],
+      const nylasClient = Nylas.with(accessToken);
+
+      const calendar = new Calendar(nylasClient, {
+        name: "My New Calendar",
+        description: "Description of my new calendar",
+        location: "Location description",
+        timezone: "America/Los_Angeles",
+        metadata: {
+          test: "true",
+        }
+      })
+
+      const savedCalendar = await calendar.save()
+
+      const nylasAccount = await nylasClient.account.get();
+
+      // TODO: Replace this with actual database
+      const user = await mockDb.createOrUpdateUser(publicId, {
+        accessToken,
+        emailAddress: publicId,
+        username,
+        accountId: nylasAccount.id,
+        calendarId: savedCalendar.id,
+        userType: userType || 'patient',
+        events: [],
+      });
+
+      const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
+      const chatToken = chatClient.createToken(userId);
+
+      chatClient.upsertUser({
+        id: userId,
+        username: username,
+      });
+
+      return res.status(200).json({
+        chatToken: chatToken,
+        userId: userId,
+        publicId: publicId,
+        userType: user.userType,
+      })
     });
-
-    const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
-    const chatToken = chatClient.createToken(userId);
-
-    chatClient.upsertUser({
-      id: userId,
-      username: username,
-    });
-
-    return res.status(200).json({
-      chatToken: chatToken,
-      userId: userId,
-      publicId: publicId,
-      userType: user.userType,
-    })
 
   } catch (err) {
       console.log(err);
