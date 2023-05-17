@@ -4,6 +4,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const mockDb = require('./utils/mock-db');
 const route = require('./route');
+const db = require('./db');
 
 const Nylas = require('nylas');
 const { WebhookTriggers } = require('nylas/lib/models/webhook');
@@ -98,6 +99,14 @@ app.post('/appointments', isAuthenticated, (req, res) =>
 app.post('/signup', (req, res) => 
   route.signup(req, res)
 );
+
+app.post('/auth/login', (req, res) =>
+  route.login(req, res)
+)
+
+app.post('/auth/logout', isAuthenticated, (req, res) =>
+  route.logout(req, res)
+)
 
 app.post('/providers/availability', isAuthenticated, (req, res) =>
   route.createEvents(req, res, { setAvailability: true })

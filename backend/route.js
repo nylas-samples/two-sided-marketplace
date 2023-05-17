@@ -1,8 +1,10 @@
 const { default: Event } = require('nylas/lib/models/event');
 const Nylas = require('nylas');
 const crypto = require('crypto');
+const bcrypt = require("bcrypt");
+const db = require("./db");
+
 const { default: Calendar } = require("nylas/lib/models/calendar");
-const { connect } = require("getstream");
 const StreamChat = require("stream-chat").StreamChat;
 
 const mockDb = require('./utils/mock-db');
@@ -147,6 +149,50 @@ exports.createEvents = async (req, res, options = {}) => {
   return res.json(savedEvent);
 };
 
+exports.login = async (req, res) => {
+  try { 
+    const { username, password } = req.body;
+    const userId = username;
+
+    db.get("SELECT * FROM users WHERE user_id = ?", [userId], async (err, row) => {
+      const hashed_password = bcrypt.hashSync(password, row.salt);
+
+      if (hashed_password !== row.hashed_password) {
+        return res.status(401).json('Unauthorized');
+      }
+  
+      const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
+      const chatToken = chatClient.createToken(userId);
+  
+      chatClient.upsertUser({
+        id: userId,
+        username: username,
+      });
+
+      return res.status(200).json({
+        chatToken: chatToken,
+        userId: row.user_id,
+        publicId: row.public_id,
+        userType: row.user_type,
+      })
+      
+      // TODO: Collect tokens and return these too in the response
+      return res.status(200).json(row);
+    });
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: err });
+  }
+};
+
+exports.logout = async (req, res) => {
+  try {
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: err });
+  }
+};
+
 // TODO: Refactor logic into utilitiy functions for re-use
 exports.signup = async (req, res) => {
   try {
@@ -154,6 +200,14 @@ exports.signup = async (req, res) => {
     const userId =username;
 
     const publicId = crypto.randomUUID();
+
+    const salt = bcrypt.genSaltSync(10);
+    const hashed_password = bcrypt.hashSync(password, salt);
+
+    const sql =
+    "INSERT INTO users (user_id, hashed_password, public_id, user_type, salt) VALUES (?,?,?,?,?)";
+    const params = [userId, hashed_password, publicId, userType, salt];
+    db.run(sql, params)
 
     const { code } = await Nylas.connect.authorize({
       name: "Virtual Calendar",
@@ -192,17 +246,7 @@ exports.signup = async (req, res) => {
       events: [],
     });
 
-    const feedClient = connect(
-      process.env.STREAM_API_KEY, 
-      process.env.STREAM_API_SECRET, 
-      process.env.STREAM_APP_ID, 
-      // TODO: Should we consume location as well?
-      { location: "eu-west", }
-    );
-
     const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
-
-    const feedToken = feedClient.createUserToken(userId);
     const chatToken = chatClient.createToken(userId);
 
     chatClient.upsertUser({
@@ -211,10 +255,9 @@ exports.signup = async (req, res) => {
     });
 
     return res.status(200).json({
-      feedToken,
-      chatToken,
-      username,
-      userId: publicId,
+      chatToken: chatToken,
+      userId: userId,
+      publicId: publicId,
       userType: user.userType,
     })
 
