@@ -271,9 +271,28 @@ exports.signup = async (req, res) => {
       })
     });
 
+    const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
+
+    const chatToken = chatClient.createToken(userId);
+
+    chatClient.upsertUser({
+      id: userId,
+      username: username,
+    });
+
+    return res.status(200).json({
+      chatToken: chatToken,
+      userId: row.user_id,
+      publicId: row.public_id,
+      userType: row.user_type,
+    })
+
+    // TODO: Collect tokens and return these too in the response
+    return res.status(200).json(row);
+    });
   } catch (err) {
-      console.log(err);
-      res.status(500).json({ message: err });
+    console.log(err);
+    res.status(500).json({ message: err });
   }
 }
 
