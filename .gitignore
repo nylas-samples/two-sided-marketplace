@@ -12,3 +12,4 @@ CTAGS
 .env
 frontend/*
 datastore.json
+two-sided-marketplace.db

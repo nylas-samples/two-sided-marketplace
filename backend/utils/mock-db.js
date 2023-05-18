@@ -27,7 +27,7 @@ class MockDB {
   async findUser(id, emailAddress) {
     const jsonRecords = await this.getJSONRecords();
     return jsonRecords.find(
-      (r) => r.emailAddress === emailAddress || r.id === id
+      (r) => r.emailAddress === emailAddress || r.id.toUpperCase() === id.toUpperCase()
     );
   }
 
