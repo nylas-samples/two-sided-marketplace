@@ -192,17 +192,8 @@ exports.signup = async (req, res) => {
       events: [],
     });
 
-    const feedClient = connect(
-      process.env.STREAM_API_KEY, 
-      process.env.STREAM_API_SECRET, 
-      process.env.STREAM_APP_ID, 
-      // TODO: Should we consume location as well?
-      { location: "eu-west", }
-    );
-
     const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
 
-    const feedToken = feedClient.createUserToken(userId);
     const chatToken = chatClient.createToken(userId);
 
     chatClient.upsertUser({
@@ -211,7 +202,6 @@ exports.signup = async (req, res) => {
     });
 
     return res.status(200).json({
-      feedToken,
       chatToken,
       username,
       userId: publicId,
