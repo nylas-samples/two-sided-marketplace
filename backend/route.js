@@ -15,8 +15,9 @@ exports.readEvent = async (req, res) => {
 
   if(user.user_type === 'patient') {
     db.get(
-      "SELECT * FROM events where event_id = ? \
-      JOIN nylas_accounts ON events.nylas_account_id = nylas_account_id.user_id",
+      "SELECT * FROM events \
+      JOIN nylas_accounts ON events.nylas_account_id = nylas_accounts.user_id \
+      where events.event_id = ?",
       [eventId], async (err, row) => {
 
         if (err) {
@@ -45,21 +46,7 @@ exports.readProviderEvents = async (req, res, options = {}) => {
         return;
       }
 
-    db.get(
-      "SELECT * FROM nylas_accounts where user_id = ?",
-      [req.params.id], async (err, row) => {
-
-        if (err) {
-          res.status(500).json({ message: err });
-          return;
-        }
-
-        accessToken = row.access_token;
-
-        events = await Nylas.with(accessToken).events.list(searchOptions)
-        return res.json(events);
-    })
-  }
+      accessToken = row.access_token;
 
       if (user.user_type === 'provider') {
         events = await Nylas.with(accessToken).events.list();
@@ -82,10 +69,11 @@ exports.readProviderEvents = async (req, res, options = {}) => {
 
 exports.readEvents = async (req, res) => {
   const userId = req.params.userId;
-  
-  db.get(
-    "SELECT * FROM events where user_id = ? \
-    JOIN nylas_accounts ON events.nylas_account_id = nylas_account_id.user_id",
+
+  db.all(
+    "SELECT * FROM events \
+    JOIN nylas_accounts ON events.calendar_id = nylas_accounts.calendar_id \
+    where events.user_id = ?",
     [userId], async (err, rows) => {
 
     if (err) {
@@ -126,8 +114,7 @@ exports.createEvents = async (req, res, options = {}) => {
   } = req.body;
 
   db.get(
-    "SELECT * FROM nylas_accounts where user_id = ? \
-    JOIN calendars ON nylas_accounts.calendar_id = calendars.calendar_id",
+    "SELECT * FROM nylas_accounts where user_id = ?",
     [providerId], async (err, row) => {
 
       if (err) {
@@ -156,25 +143,30 @@ exports.createEvents = async (req, res, options = {}) => {
       event.busy = options.setAvailability ? false : true;
 
       event.metadata = {
-        providerId: provider.id,
-        userId: user.id
+        providerId: providerId,
+        userId: user.user_id
       }
       
       const savedEvent = await event.save();
 
-      const sql =
-      "INSERT INTO events (user_id, calendar_id, event_id) VALUES (?,?,?)";
-      const eventParams = [user.id, calendar_id, savedEvent.id];
-      db.run(sql, eventParams, async function (err, result) {
-
-        if (err) {
-          res.status(500).json({ message: err });
+      if(!options.setAvailability) {
+        console.log(user.user_id, calendar_id, savedEvent.id);
+        const sql =
+        "INSERT INTO events (user_id, calendar_id, event_id) VALUES (?,?,?)";
+        const eventParams = [user.user_id, calendar_id, savedEvent.id];
+        db.run(sql, eventParams, async function (err, result) {
+          
+          if (err) {
+            res.status(500).json({ message: err });
+            return;
+          }
+          res.json(savedEvent);
           return;
-        }
-
-        return res.json(savedEvent);
-      });
-
+        });
+      } else {
+        res.json(savedEvent);
+        return;
+      }
     }
   )
 };
@@ -264,10 +256,23 @@ exports.signup = async (req, res) => {
       const nylasClient = Nylas.with(accessToken);
       const account = await nylasClient.account.get();
 
+      const calendar = new Calendar(nylasClient, {
+        name: "My New Calendar",
+        description: "Description of my new calendar",
+        location: "Location description",
+        // TODO: Need to set timezone based on user's location
+        timezone: "America/Los_Angeles",
+        metadata: {
+          test: "test",
+        }
+      })
+
+      const savedCalendar = await calendar.save();
+
       // TODO: Need to encrypt this key
       const nylasSql = 
-      "INSERT INTO nylas_accounts (user_id, account_id, access_token) VALUES (?,?,?)";
-      const nylasParams = [userId, account.id, accessToken];
+      "INSERT INTO nylas_accounts (user_id, account_id, access_token, calendar_id) VALUES (?,?,?,?)";
+      const nylasParams = [userId, account.id, accessToken, savedCalendar.id];
       db.run(nylasSql, nylasParams, async function (err, result) {
 
         if (err) {
@@ -275,44 +280,31 @@ exports.signup = async (req, res) => {
           return;
         }
 
-        const calendar = new Calendar(nylasClient, {
-          name: "My New Calendar",
-          description: "Description of my new calendar",
-          location: "Location description",
-          // TODO: Need to set timezone based on user's location
-          timezone: "America/Los_Angeles",
-          metadata: {
-            test: "test",
-          }
-        })
-  
-        const savedCalendar = await calendar.save();
+        // const calendarSql = 
+        // "INSERT INTO calendars (user_id, calendar_id) VALUES (?,?)";
+        // const calendarParams = [userId, savedCalendar.id];
 
-        const calendarSql = 
-        "INSERT INTO calendars (user_id, calendar_id) VALUES (?,?)";
-        const calendarParams = [userId, savedCalendar.id];
+        // db.run(calendarSql, calendarParams, async function (err, result) {
+        //   if (err) {
+        //     res.status(500).json({ calendarInsert: err });
+        //     return;
+        //   }
 
-        db.run(calendarSql, calendarParams, async function (err, result) {
-          if (err) {
-            res.status(500).json({ calendarInsert: err });
-            return;
-          }
+        const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
+        const chatToken = chatClient.createToken(userId);
 
-          const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
-          const chatToken = chatClient.createToken(userId);
-  
-          chatClient.upsertUser({
-            id: userId,
-            username: username,
-          });
-  
-          return res.status(200).json({
-            chatToken: chatToken,
-            userId: userId,
-            publicId: publicId,
-            userType: userType,
-          })
+        chatClient.upsertUser({
+          id: userId,
+          username: username,
         });
+
+        return res.status(200).json({
+          chatToken: chatToken,
+          userId: userId,
+          publicId: publicId,
+          userType: userType,
+        })
+        // });
       });
     });
   } catch (err) {
@@ -321,30 +313,34 @@ exports.signup = async (req, res) => {
   }
 }
 
-// TODO: Refactor this endpoint, what is the purpose of this?
-exports.readUser = async (req, res) => {
-  const user = res.locals.user;
+// TODO: Clarify the use case, changed to readProvider for now
+exports.readProvider = async (req, res) => {
+  db.get(
+    "SELECT * FROM nylas_accounts WHERE user_id = ?",
+    [req.params.userId], async (err, row) => {
 
-  Nylas.config({
-    clientId: process.env.NYLAS_CLIENT_ID, 
-    clientSecret: process.env.NYLAS_CLIENT_SECRET,
-    apiServer: process.env.NYLAS_API_SERVER,
+    Nylas.config({
+      clientId: process.env.NYLAS_CLIENT_ID, 
+      clientSecret: process.env.NYLAS_CLIENT_SECRET,
+      apiServer: process.env.NYLAS_API_SERVER,
+    })
+
+    const account = await Nylas.accounts.find(row.account_id).then((user) => user);
+
+    return res.json(account);
   })
-
-  const account = await Nylas.accounts.find(user.accountId).then((user) => user);
-
-  return res.json(account);
 }
 
 exports.readProviders = async (req, res) => {
-  db.get(
+  db.all(
     "SELECT * FROM users where user_type = ?",
-    ["provider"], async (err, rows) => {
-
+    ["provider"], async (err, rows = []) => {
       if (err) {
         res.status(500).json({ message: err });
         return;
       }
+
+      console.log(337, rows);
 
       // TODO: Consider storing and returning additional provider details
       const providers = rows.map(provider => ({
@@ -384,8 +380,9 @@ exports.deleteEvent = async (req, res) => {
 
   if(user.user_type === 'patient') {
     db.get(
-      "SELECT * FROM events where event_id = ? \
-      JOIN nylas_accounts on users.user_id = nylas_accounts.user_id",
+      "SELECT * FROM events \
+      JOIN nylas_accounts on users.user_id = nylas_accounts.user_id \
+      where events.event_id = ?",
       [eventId], async (err, rows) => {
 
         if (err) {
@@ -428,8 +425,9 @@ exports.updateEvent = async (req, res) => {
 
   if(user.user_type === 'patient') {
     db.get(
-      "SELECT * FROM events where event_id = ? \
-      JOIN nylas_accounts ON events.nylas_account_id = nylas_account_id.user_id",
+      "SELECT * FROM events \
+      JOIN nylas_accounts ON events.nylas_account_id = nylas_account_id.user_id \
+      where events.event_id = ?",
       [id], async (err, row) => {
 
         if (err) {
