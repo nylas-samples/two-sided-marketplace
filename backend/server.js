@@ -1,8 +1,6 @@
 const express = require('express');
-const bodyParser = require('body-parser')
 const cors = require('cors');
 const dotenv = require('dotenv');
-const mockDb = require('./utils/mock-db');
 const route = require('./route');
 const db = require('./db');
 
@@ -53,19 +51,22 @@ async function isAuthenticated(req, res, next) {
     return res.status(401).json('Unauthorized');
   }
 
-  // Query our mock db to retrieve the stored user access token
-  const user = await mockDb.findUser(req.headers.authorization);
-  // const provider = await mockDb.findUser(req.body.providerId);
+  db.get(
+    "SELECT * FROM users WHERE user_id = ?", 
+    [req.headers.authorization], async (err, row) => 
+  {
+    if (err) {
+      res.status(500).json({ message: err });
+      return;
+    }
 
-  if (!user) {
-    return res.status(401).json('Unauthorized');
-  }
+    if (!row) {
+      return res.status(401).json('Unauthorized');
+    }
 
-  // Add the user to the response locals
-  res.locals.user = user;
-  // res.locals.provider = provider;
-
-  next();
+    res.locals.user = row;
+    next();
+  });
 }
 
 app.get('/appointments/:id', isAuthenticated, (req, res) => {
@@ -76,12 +77,12 @@ app.get('/users/:userId/appointments', isAuthenticated, (req, res) => {
   route.readEvents(req, res)
 });
 
-app.get('/users/:userId', isAuthenticated, (req, res) => {
-  route.readUser(req, res)
-});
+// app.get('/users/:userId', isAuthenticated, (req, res) => {
+//   route.readUser(req, res)
+// });
 
 app.get('/providers/:userId', isAuthenticated, (req, res) => {
-  route.readUser(req, res)
+  route.readProvider(req, res)
 });
 
 app.get('/providers', isAuthenticated, (req, res) => {
