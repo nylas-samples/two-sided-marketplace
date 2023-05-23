@@ -77,12 +77,12 @@ app.get('/users/:userId/appointments', isAuthenticated, (req, res) => {
   route.readEvents(req, res)
 });
 
-app.get('/users/:userId', isAuthenticated, (req, res) => {
-  route.readUser(req, res)
-});
+// app.get('/users/:userId', isAuthenticated, (req, res) => {
+//   route.readUser(req, res)
+// });
 
 app.get('/providers/:userId', isAuthenticated, (req, res) => {
-  route.readUser(req, res)
+  route.readProvider(req, res)
 });
 
 app.get('/providers', isAuthenticated, (req, res) => {
