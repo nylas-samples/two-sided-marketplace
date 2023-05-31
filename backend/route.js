@@ -141,11 +141,6 @@ exports.createEvents = async (req, res, options = {}) => {
       event.when.endTime = endTime;
       // NOTE: Setting free/busy to search for availability of provider
       event.busy = options.setAvailability ? false : true;
-
-      event.metadata = {
-        providerId: providerId,
-        userId: user.user_id
-      }
       
       const savedEvent = await event.save();
 
@@ -223,26 +218,51 @@ exports.logout = async (req, res) => {
 
 exports.signup = async (req, res) => {
   try {
-    const { username, password, userType } = req.body;
+    const { 
+      username, 
+      password, 
+      userType, 
+      providerSpecialty, 
+      avatarUrl, 
+      fullName 
+    } = req.body;
     // so userId is username
     const userId = username;
 
     const publicId = crypto.randomUUID();
     const salt = bcrypt.genSaltSync(10);
     const hashed_password = bcrypt.hashSync(password, salt);
-    const cryptovector = crypto.randomBytes(32); // 16 bytes for AES-256
 
     // TODO: multiple db.runs are nested by callbacks, refactor to use async/await
     const sql =
-    "INSERT INTO users (user_id, hashed_password, public_id, user_type, salt) VALUES (?,?,?,?,?)";
-    const params = [userId, hashed_password, publicId, userType, salt];
-    // TODO: 
+    "INSERT INTO users ( \
+      user_id, \
+      hashed_password, \
+      public_id, \
+      user_type, \
+      salt, \
+      provider_specialty, \
+      full_name, \
+      avatar_url) \
+      VALUES (?,?,?,?,?,?,?,?) \
+    ";
+    const params = [
+      userId, 
+      hashed_password, 
+      publicId, 
+      userType, 
+      salt,
+      providerSpecialty,
+      fullName,
+      avatarUrl,
+    ];
+    
     db.run(sql, params, async function (err, result) {
       if (err) {
         res.status(500).json({ userInsert: err });
         return;
       }
-      
+
       const { code } = await Nylas.connect.authorize({
         name: "Virtual Calendar",
         emailAddress: publicId,
@@ -269,26 +289,21 @@ exports.signup = async (req, res) => {
 
       const savedCalendar = await calendar.save();
 
-      // TODO: Need to encrypt this key
+      // TODO: Encrypt this accessToken
       const nylasSql = 
       "INSERT INTO nylas_accounts (user_id, account_id, access_token, calendar_id) VALUES (?,?,?,?)";
-      const nylasParams = [userId, account.id, accessToken, savedCalendar.id];
+      const nylasParams = [
+        userId, 
+        account.id, 
+        accessToken, 
+        savedCalendar.id
+      ];
       db.run(nylasSql, nylasParams, async function (err, result) {
 
         if (err) {
           res.status(500).json({ nylasInsert: err });
           return;
         }
-
-        // const calendarSql = 
-        // "INSERT INTO calendars (user_id, calendar_id) VALUES (?,?)";
-        // const calendarParams = [userId, savedCalendar.id];
-
-        // db.run(calendarSql, calendarParams, async function (err, result) {
-        //   if (err) {
-        //     res.status(500).json({ calendarInsert: err });
-        //     return;
-        //   }
 
         const chatClient = StreamChat.getInstance(process.env.STREAM_API_KEY, process.env.STREAM_API_SECRET);
         const chatToken = chatClient.createToken(userId);
@@ -340,12 +355,12 @@ exports.readProviders = async (req, res) => {
         return;
       }
 
-      console.log(337, rows);
-
-      // TODO: Consider storing and returning additional provider details
       const providers = rows.map(provider => ({
         id: provider.user_id,
-        username: provider.user_id
+        username: provider.user_id,
+        fullName: provider.full_name,
+        avatarUrl: provider.avatar_url,
+        providerSpecialty: provider.provider_specialty
       }))
 
       return res.json(providers);
