@@ -117,6 +117,10 @@ app.get('/providers/:id/availability', isAuthenticated, (req, res) =>
   route.readProviderEvents(req, res, { searchAvailability: true })
 );
 
+app.get('/providers/availability/:specialty', isAuthenticated, (req, res) =>
+  route.readProvidersAvailability(req, res, { searchAvailability: true })
+);
+
 app.get('/providers/:id/appointments', isAuthenticated, (req, res) =>
   route.readProviderEvents(req, res)
 )

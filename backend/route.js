@@ -25,10 +25,10 @@ exports.readEvent = async (req, res) => {
           return;
         }
 
-        accessToken = row.access_token;
+        const accessToken = row.access_token;
 
         const events = await Nylas.with(accessToken).events.find(eventId);
-        return res.json(events);
+        return res.status(200).json(events);
     })
   }
 };
@@ -46,7 +46,7 @@ exports.readProviderEvents = async (req, res, options = {}) => {
         return;
       }
 
-      accessToken = row.access_token;
+      const accessToken = row.access_token;
 
       if (user.user_type === 'provider') {
         events = await Nylas.with(accessToken).events.list();
@@ -63,7 +63,47 @@ exports.readProviderEvents = async (req, res, options = {}) => {
         }
         events = await Nylas.with(accessToken).events.list(searchOptions)
       }
-      return res.json(events);
+      return res.status(200).json(events);
+  })
+}
+
+exports.readProvidersAvailability = async (req, res, options = {}) => {
+  let events = []
+  const user = res.locals.user;
+
+  db.all(
+    "SELECT * FROM users \
+    JOIN nylas_accounts ON users.user_id = nylas_accounts.user_id \
+    where users.provider_specialty = ?",
+    [req.params.specialty], async (err, rows) => {
+
+      if (err) {
+        res.status(500).json({ message: err });
+        return;
+      }
+      
+      if (user.user_type === 'patient' && options.searchAvailability) {
+        const { startsAfter, endsBefore, limit } = req.query;
+        
+        const searchOptions = {
+          starts_after: startsAfter || Math.floor(Date.now()/1000),
+          ends_before: endsBefore || Math.floor((Date.now() + 5 * 24 * 60 * 60 * 1000)/1000), 
+          limit,
+          busy: false,
+        }
+        
+        const allProvidersAvailability = await Promise.all(rows.map(async provider => {
+          const accessToken = provider.access_token;
+          events = await Nylas.with(accessToken).events.list(searchOptions);
+
+          return ({
+            ...provider,
+            availability: events
+          })
+        }))
+        
+        return res.status(200).json(allProvidersAvailability);
+      }
   })
 }
 
@@ -90,7 +130,7 @@ exports.readEvents = async (req, res) => {
       return event;
     }));
 
-    return res.json(events);
+    return res.status(200).json(events);
   })
 };
 
@@ -99,7 +139,7 @@ exports.readCalendars = async (req, res) => {
 
   const calendars = await Nylas.with(user.accessToken).calendars.list()
 
-  return res.json(calendars);
+  return res.status(200).json(calendars);
 };
 
 exports.createEvents = async (req, res, options = {}) => {
@@ -155,11 +195,11 @@ exports.createEvents = async (req, res, options = {}) => {
             res.status(500).json({ message: err });
             return;
           }
-          res.json(savedEvent);
+          res.status(200).json(savedEvent);
           return;
         });
       } else {
-        res.json(savedEvent);
+        res.status(200).json(savedEvent);
         return;
       }
     }
@@ -342,7 +382,7 @@ exports.readProvider = async (req, res) => {
 
     const account = await Nylas.accounts.find(row.account_id).then((user) => user);
 
-    return res.json(account);
+    return res.status(200).json(account);
   })
 }
 
@@ -363,7 +403,7 @@ exports.readProviders = async (req, res) => {
         providerSpecialty: provider.provider_specialty
       }))
 
-      return res.json(providers);
+      return res.status(200).json(providers);
   })
 }
 
@@ -384,7 +424,7 @@ exports.deleteUser = (req, res) => {
       return;
     }
 
-    return res.json(result);
+    return res.status(200).json(result);
   });
 }
 
@@ -419,7 +459,7 @@ exports.deleteEvent = async (req, res) => {
         return;
       }
   
-      return res.json(result);
+      return res.status(200).json(result);
     });
   }
 }
@@ -433,7 +473,6 @@ exports.updateEvent = async (req, res) => {
     description, 
     startTime, 
     endTime, 
-    metadata,
   } = req.body;
 
   let accessToken = user.accessToken
@@ -450,7 +489,7 @@ exports.updateEvent = async (req, res) => {
           return;
         }
 
-        accessToken = row.access_token;
+        const accessToken = row.access_token;
         let nylas = Nylas.with(user.accessToken);
 
         const event = nylas.events.find(id).then((event) => event);
@@ -465,7 +504,7 @@ exports.updateEvent = async (req, res) => {
       
         const result = nylas.events.save([updatedEvent]).then(result => result);
       
-        return res.json(result);
+        return res.status(200).json(result);
     })
   }
 }
