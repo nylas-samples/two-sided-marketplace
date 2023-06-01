@@ -16,7 +16,7 @@ exports.readEvent = async (req, res) => {
   if(user.user_type === 'patient') {
     db.get(
       "SELECT * FROM events \
-      JOIN nylas_accounts ON events.nylas_account_id = nylas_accounts.user_id \
+      JOIN nylas_accounts ON events.calendar_id = nylas_accounts.calendar_id \
       where events.event_id = ?",
       [eventId], async (err, row) => {
 
@@ -34,7 +34,7 @@ exports.readEvent = async (req, res) => {
 };
 
 exports.readProviderEvents = async (req, res, options = {}) => {
-  let events = []
+  let events = [];
   const user = res.locals.user;
 
   db.get(
@@ -86,15 +86,19 @@ exports.readProvidersAvailability = async (req, res, options = {}) => {
         const { startsAfter, endsBefore, limit } = req.query;
         
         const searchOptions = {
-          starts_after: startsAfter || Math.floor(Date.now()/1000),
-          ends_before: endsBefore || Math.floor((Date.now() + 5 * 24 * 60 * 60 * 1000)/1000), 
-          limit,
+          // default is now
+          starts_after: startsAfter || Math.floor(Date.now() - 2 * 24 * 60 * 60 * 1000/1000),
+          // default is 5 days from now
+          // ends_before: endsBefore || Math.floor((Date.now() + 5 * 24 * 60 * 60 * 1000)/1000), 
+          limit: limit || 10,
           busy: false,
         }
         
         const allProvidersAvailability = await Promise.all(rows.map(async provider => {
           const accessToken = provider.access_token;
           events = await Nylas.with(accessToken).events.list(searchOptions);
+
+          delete provider.access_token;
 
           return ({
             ...provider,
@@ -142,7 +146,7 @@ exports.readCalendars = async (req, res) => {
   return res.status(200).json(calendars);
 };
 
-exports.createEvents = async (req, res, options = {}) => {
+exports.createAvailability = async (req, res) => {
   const user = res.locals.user;
   
   const {
@@ -180,28 +184,71 @@ exports.createEvents = async (req, res, options = {}) => {
       event.when.startTime = startTime;
       event.when.endTime = endTime;
       // NOTE: Setting free/busy to search for availability of provider
-      event.busy = options.setAvailability ? false : true;
+      // TODO: Should we consider this as a parameter
+      event.busy = true;
       
       const savedEvent = await event.save();
 
-      if(!options.setAvailability) {
-        console.log(user.user_id, calendar_id, savedEvent.id);
-        const sql =
-        "INSERT INTO events (user_id, calendar_id, event_id) VALUES (?,?,?)";
-        const eventParams = [user.user_id, calendar_id, savedEvent.id];
-        db.run(sql, eventParams, async function (err, result) {
-          
-          if (err) {
-            res.status(500).json({ message: err });
-            return;
-          }
-          res.status(200).json(savedEvent);
-          return;
-        });
-      } else {
-        res.status(200).json(savedEvent);
+      res.status(200).json(savedEvent);
+      return;
+    }
+  )
+};
+
+exports.createAppointment = async (req, res) => {
+  const user = res.locals.user;
+  
+  const {
+    title, 
+    description, 
+    startTime, 
+    endTime,
+    providerId,
+  } = req.body;
+
+  db.get(
+    "SELECT * FROM nylas_accounts where user_id = ?",
+    [providerId], async (err, row) => {
+
+      if (err) {
+        res.status(500).json({ message: err });
         return;
       }
+
+      const { access_token, calendar_id } = row;
+
+      if (!access_token || !title || !startTime || !endTime) {
+        return res.status(400).json({
+          message:
+            'Missing required fields: providerId, title, startTime or endTime',
+        });
+      }
+
+      const nylas = Nylas.with(access_token);
+      const event = new Event(nylas);
+
+      event.calendarId = calendar_id;
+      event.title = title;
+      event.description = description;
+      event.when.startTime = startTime;
+      event.when.endTime = endTime;
+      // NOTE: Setting free/busy to search for availability of provider
+      event.busy = true;
+      
+      const savedEvent = await event.save();
+
+      const sql =
+      "INSERT INTO events (user_id, calendar_id, event_id) VALUES (?,?,?)";
+      const eventParams = [user.user_id, calendar_id, savedEvent.id];
+      db.run(sql, eventParams, async function (err, result) {
+        
+        if (err) {
+          res.status(500).json({ message: err });
+          return;
+        }
+        res.status(200).json(savedEvent);
+        return;
+      });
     }
   )
 };
@@ -368,21 +415,14 @@ exports.signup = async (req, res) => {
   }
 }
 
-// TODO: Clarify the use case, changed to readProvider for now
 exports.readProvider = async (req, res) => {
   db.get(
-    "SELECT * FROM nylas_accounts WHERE user_id = ?",
+    "SELECT * FROM users WHERE user_id = ?",
     [req.params.userId], async (err, row) => {
+    
+    const provider = row;
 
-    Nylas.config({
-      clientId: process.env.NYLAS_CLIENT_ID, 
-      clientSecret: process.env.NYLAS_CLIENT_SECRET,
-      apiServer: process.env.NYLAS_API_SERVER,
-    })
-
-    const account = await Nylas.accounts.find(row.account_id).then((user) => user);
-
-    return res.status(200).json(account);
+    return res.status(200).json(row);
   })
 }
 
@@ -436,7 +476,7 @@ exports.deleteEvent = async (req, res) => {
   if(user.user_type === 'patient') {
     db.get(
       "SELECT * FROM events \
-      JOIN nylas_accounts on users.user_id = nylas_accounts.user_id \
+      JOIN nylas_accounts ON events.calendar_id = nylas_accounts.calendar_id \
       where events.event_id = ?",
       [eventId], async (err, rows) => {
 
@@ -480,7 +520,7 @@ exports.updateEvent = async (req, res) => {
   if(user.user_type === 'patient') {
     db.get(
       "SELECT * FROM events \
-      JOIN nylas_accounts ON events.nylas_account_id = nylas_account_id.user_id \
+      JOIN nylas_accounts ON events.calendar_id = nylas_accounts.calendar_id \
       where events.event_id = ?",
       [id], async (err, row) => {
 

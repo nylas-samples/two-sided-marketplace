@@ -94,7 +94,7 @@ app.delete('/users/:userId', isAuthenticated, (req, res) => {
 });
 
 app.post('/appointments', isAuthenticated, (req, res) =>
-  route.createEvents(req, res)
+  route.createAppointment(req, res)
 );
 
 app.post('/signup', (req, res) => 
@@ -110,7 +110,7 @@ app.post('/auth/logout', isAuthenticated, (req, res) =>
 )
 
 app.post('/providers/availability', isAuthenticated, (req, res) =>
-  route.createEvents(req, res, { setAvailability: true })
+  route.createAvailability(req, res, { setAvailability: true })
 );
 
 app.get('/providers/:id/availability', isAuthenticated, (req, res) =>
