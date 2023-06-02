@@ -4,7 +4,9 @@
   "description": "Demo using the Nylas Node SDK and ExpressJS.",
   "main": "server.js",
   "scripts": {
-    "start": "npx nodemon server.js"
+    "start": "npx nodemon server.js",
+    "seed-provider": "node seed-provider.js",
+    "seed-patient": "node seed-patient.js"
   },
   "author": "Nylas Team",
   "license": "ISC",
@@ -14,20 +16,21 @@
     ]
   },
   "devDependencies": {
+    "@faker-js/faker": "^8.0.2",
     "nodemon": "^2.0.19"
   },
   "dependencies": {
+    "bcrypt": "^5.1.0",
     "body-parser": "^1.15.2",
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "^4.14.0",
     "getstream": "^8.1.2",
+    "mkdirp": "^1.0.4",
     "nylas": "6.8.0",
     "request": "^2.74.0",
-    "stream-chat": "^8.6.0",
-    "uuid": "^8.3.2",
     "sqlite3": "5.1.6",
-    "mkdirp": "^1.0.4",
-    "bcrypt":"^5.1.0"
+    "stream-chat": "^8.6.0",
+    "uuid": "^8.3.2"
   }
 }

@@ -13,6 +13,9 @@ const createTables = () => {
             hashed_password BLOB NOT NULL, \
             public_id TEXT NOT NULL, \
             user_type TEXT NOT NULL, \
+            provider_specialty TEXT, \
+            full_name TEXT, \
+            avatar_url TEXT, \
             salt BLOB NOT NULL \
         )"
     )
