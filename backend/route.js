@@ -3,6 +3,7 @@ const Nylas = require('nylas');
 const crypto = require('crypto');
 const bcrypt = require("bcrypt");
 const db = require("./db");
+const { encrypt, decrypt } = require('./encrypt');
 // TODO: Bring in dotenv
 
 const { default: Calendar } = require("nylas/lib/models/calendar");
@@ -25,7 +26,7 @@ exports.readEvent = async (req, res) => {
           return;
         }
 
-        const accessToken = row.access_token;
+        const accessToken = decrypt(row.access_token);
 
         const events = await Nylas.with(accessToken).events.find(eventId);
         return res.status(200).json(events);
@@ -46,7 +47,7 @@ exports.readProviderEvents = async (req, res, options = {}) => {
         return;
       }
 
-      const accessToken = row.access_token;
+      const accessToken = decrypt(row.access_token);
 
       if (user.user_type === 'provider') {
         events = await Nylas.with(accessToken).events.list();
@@ -75,7 +76,7 @@ exports.readProvidersAvailability = async (req, res, options = {}) => {
     "SELECT * FROM users \
     JOIN nylas_accounts ON users.user_id = nylas_accounts.user_id \
     where users.provider_specialty = ?",
-    [req.params.specialty], async (err, rows) => {
+    [req.params.specialty.toLowerCase()], async (err, rows) => {
 
       if (err) {
         res.status(500).json({ message: err });
@@ -95,7 +96,7 @@ exports.readProvidersAvailability = async (req, res, options = {}) => {
         }
         
         const allProvidersAvailability = await Promise.all(rows.map(async provider => {
-          const accessToken = provider.access_token;
+          const accessToken = decrypt(provider.access_token);
           events = await Nylas.with(accessToken).events.list(searchOptions);
 
           delete provider.access_token;
@@ -127,7 +128,7 @@ exports.readEvents = async (req, res) => {
 
     const events = await Promise.all(rows.map(async data => {
       const { access_token, event_id } = data;
-      const event = await Nylas.with(access_token)
+      const event = await Nylas.with(decrypt(access_token))
         .events.find(event_id)
         .then((events) => events);
 
@@ -155,6 +156,7 @@ exports.createAvailability = async (req, res) => {
     startTime, 
     endTime,
     providerId,
+    isBusy,
   } = req.body;
 
   db.get(
@@ -175,7 +177,7 @@ exports.createAvailability = async (req, res) => {
         });
       }
 
-      const nylas = Nylas.with(access_token);
+      const nylas = Nylas.with(decrypt(access_token));
       const event = new Event(nylas);
 
       event.calendarId = calendar_id;
@@ -183,9 +185,7 @@ exports.createAvailability = async (req, res) => {
       event.description = description;
       event.when.startTime = startTime;
       event.when.endTime = endTime;
-      // NOTE: Setting free/busy to search for availability of provider
-      // TODO: Should we consider this as a parameter
-      event.busy = true;
+      event.busy = isBusy || false;
       
       const savedEvent = await event.save();
 
@@ -193,6 +193,49 @@ exports.createAvailability = async (req, res) => {
       return;
     }
   )
+};
+
+
+exports.modifyAvailability = async (req, res) => {
+  const user = res.locals.user;
+  
+  const {
+    title, 
+    description, 
+    startTime, 
+    endTime,
+    isBusy,
+    id,
+  } = req.body;
+
+  console.log(user);
+
+  db.get(
+    "SELECT * FROM nylas_accounts \
+    where nylas_accounts.user_id = ?",
+    [user.user_id], async (err, row) => {
+
+      if (err) {
+        res.status(500).json({ message: err });
+        return;
+      }
+
+      const accessToken = row.access_token;
+      let nylas = Nylas.with(decrypt(accessToken));
+
+      const event = await nylas.events.find(id);
+
+      event.title = title || event.title;
+      event.description = description || event.description;
+      event.when.startTime = startTime || event.when.startTime;
+      event.when.endTime = endTime || event.when.endTime;
+      event.busy = isBusy || event.busy;
+      // TODO: Why is this required?
+      event.visibility = null;
+    
+      await event.save();
+      return res.status(200).json(event);
+  })
 };
 
 exports.createAppointment = async (req, res) => {
@@ -224,7 +267,7 @@ exports.createAppointment = async (req, res) => {
         });
       }
 
-      const nylas = Nylas.with(access_token);
+      const nylas = Nylas.with(decrypt(access_token));
       const event = new Event(nylas);
 
       event.calendarId = calendar_id;
@@ -376,13 +419,12 @@ exports.signup = async (req, res) => {
 
       const savedCalendar = await calendar.save();
 
-      // TODO: Encrypt this accessToken
       const nylasSql = 
       "INSERT INTO nylas_accounts (user_id, account_id, access_token, calendar_id) VALUES (?,?,?,?)";
       const nylasParams = [
         userId, 
         account.id, 
-        accessToken, 
+        encrypt(accessToken), 
         savedCalendar.id
       ];
       db.run(nylasSql, nylasParams, async function (err, result) {
@@ -419,9 +461,12 @@ exports.readProvider = async (req, res) => {
   db.get(
     "SELECT * FROM users WHERE user_id = ?",
     [req.params.userId], async (err, row) => {
-    
-    const provider = row;
 
+    if (err) {
+      res.status(500).json({ message: err });
+      return;
+    }
+    
     return res.status(200).json(row);
   })
 }
@@ -468,7 +513,8 @@ exports.deleteUser = (req, res) => {
   });
 }
 
-exports.deleteEvent = async (req, res) => {
+// TODO: Test this out
+exports.deleteAppointment = async (req, res) => {
   const user = res.locals.user;
   const eventId = req.params.eventId;
   let accessToken = user.access_token
@@ -489,7 +535,7 @@ exports.deleteEvent = async (req, res) => {
       }
     )
 
-    let nylas = Nylas.with(user.accessToken);
+    let nylas = Nylas.with(decrypt(user.accessToken));
     
     const result = await nylas.events.delete([eventId]);
 
@@ -504,7 +550,7 @@ exports.deleteEvent = async (req, res) => {
   }
 }
 
-exports.updateEvent = async (req, res) => {
+exports.updateAppointment = async (req, res) => {
   const user = res.locals.user;
 
   const {
@@ -514,8 +560,6 @@ exports.updateEvent = async (req, res) => {
     startTime, 
     endTime, 
   } = req.body;
-
-  let accessToken = user.accessToken
 
   if(user.user_type === 'patient') {
     db.get(
@@ -530,21 +574,21 @@ exports.updateEvent = async (req, res) => {
         }
 
         const accessToken = row.access_token;
-        let nylas = Nylas.with(user.accessToken);
+        let nylas = Nylas.with(decrypt(accessToken));
 
-        const event = nylas.events.find(id).then((event) => event);
+        const event = await nylas.events.find(id);
+
+        console.log(538, event);
       
-        const updatedEvent = {
-          ...event,
-          title,
-          description,
-          startTime,
-          endTime,
-        }
+        event.title = title || event.title;
+        event.description = description || event.description;
+        event.when.startTime = startTime || event.when.startTime;
+        event.when.endTime = endTime || event.when.endTime;
+        // TODO: Why is this required?
+        event.visibility = null;
       
-        const result = nylas.events.save([updatedEvent]).then(result => result);
-      
-        return res.status(200).json(result);
+        await event.save();
+        return res.status(200).json(event);
     })
   }
 }

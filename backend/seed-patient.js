@@ -8,6 +8,7 @@ const dotenv = require('dotenv');
 const { default: Calendar } = require("nylas/lib/models/calendar");
 const { default: Event } = require('nylas/lib/models/event');
 const { createTables } = require('./create-tables')
+const { encrypt, decrypt } = require('./encrypt'); 
 
 dotenv.config();
 
@@ -121,7 +122,7 @@ Promise.all(updatedPatients).then(patientsToSave => {
             calendar_id: calendarId
           } = provider;
 
-          const nylasClient = Nylas.with(accessToken);
+          const nylasClient = Nylas.with(decrypt(accessToken));
           const timeSlot = availability[providerIndex];
           const event = new Event(nylasClient);
 

@@ -97,6 +97,14 @@ app.post('/appointments', isAuthenticated, (req, res) =>
   route.createAppointment(req, res)
 );
 
+app.delete('/appointments', isAuthenticated, (req, res) => 
+  route.deleteAppointment(req, res)
+)
+
+app.patch('/appointments', isAuthenticated, (req, res) => 
+  route.updateAppointment(req, res)
+)
+
 app.post('/signup', (req, res) => 
   route.signup(req, res)
 );
@@ -111,6 +119,10 @@ app.post('/auth/logout', isAuthenticated, (req, res) =>
 
 app.post('/providers/availability', isAuthenticated, (req, res) =>
   route.createAvailability(req, res, { setAvailability: true })
+);
+
+app.patch('/providers/availability', isAuthenticated, (req, res) =>
+  route.modifyAvailability(req, res)
 );
 
 app.get('/providers/:id/availability', isAuthenticated, (req, res) =>

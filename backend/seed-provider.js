@@ -7,7 +7,8 @@ const bcrypt = require("bcrypt");
 const dotenv = require('dotenv');
 const { default: Calendar } = require("nylas/lib/models/calendar");
 const { default: Event } = require('nylas/lib/models/event');
-const { createTables } = require('./create-tables')
+const { createTables } = require('./create-tables');
+const { encrypt } = require('./encrypt');
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ const createProviders = _ => ({
   providerSpecialty: (() => {
     const randomIndex = Math.floor(Math.random() * sampleProviderSpeciality.length);
 
-    return sampleProviderSpeciality[randomIndex];
+    return sampleProviderSpeciality[randomIndex].toLowerCase();
   })()
 })
 
@@ -142,7 +143,7 @@ Promise.all(updatedProviders).then(providersToSave => {
       const nylasParams = [
         userId, 
         account_id, 
-        accessToken, 
+        encrypt(accessToken), 
         calendar_id
       ];
       db.run(nylasSql, nylasParams, async function (err, result) {
