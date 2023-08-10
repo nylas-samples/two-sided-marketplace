@@ -11,7 +11,11 @@ An implementation with Node Express.
 
 ### Set up your `.env` file
 
-Go to the Nylas Dashboard, and choose the Quickstart Application.
+We provided an `.example.env` as reference. Consider renaming `.example.env` to `.env` and updating the values.
+
+Go to the Nylas Dashboard, and choose the Quickstart Application. To learn more about building with Quickstart Guides, check out our [blog post on Quickstart Guides](https://www.nylas.com/blog/an-intro-to-the-nylas-quickstart-guide/).
+
+Also grab the Stream environment variables, they have a blog on getting these values: [Minimal Node Integration to Get You Started with Stream](https://getstream.io/blog/node-integration-with-stream/)
 
 Click **App Settings** to see the `client_id` and `client_secret` for the Quickstart app.
 
