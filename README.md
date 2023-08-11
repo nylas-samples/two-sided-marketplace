@@ -1,6 +1,6 @@
 # Two Sided Marketplace
 
-![image2](https://github.com/nylas-samples/two-sided-marketplace/assets/553578/b0db6644-dc76-41a8-bfbc-31ada8f823c4)
+![image2](https://github.com/nylas-samples/two-sided-marketplace/assets/553578/de1b9b3f-fafa-470d-9719-44c899477099)
 
 **⚠️ Warning: This repo is not meant for use in production, only local testing, and stability is not fully guaranteed.**
 
