@@ -10,7 +10,8 @@ The specific use case initially solves for health care scheduling where patients
 1. Book a time slot to connect with a health care provider using [Nylas Calendar API](https://developer.nylas.com/docs/calendar/)
 2. Have a live chat or video call  with a health care provider using [Stream's APIs](https://getstream.io/)
 
-Check out our recent livestream where we walkthrough the entire Backend API setup: [Building a Two-Sided Marketplace with In-App Scheduling and Live Chat](https://www.youtube.com/watch?v=NV1ugrZayns)
+Check out our recent livestream where we walkthrough the entire Backend API setup: [Building a Two-Sided Marketplace with In-App Scheduling and Live Chat](https://www.youtube.com/watch?v=NV1ugrZayns).
+The frontend code and tutorial can be found here: [Integrating Chat and Scheduling To Transform Online Care Appointments](https://getstream.io/blog/telemedicine-chat-and-scheduling/)
 
 This application is based off of the [Read and Create Calendar Events Nylas Quickstart guide](https://github.com/nylas/use-cases/tree/main/packages/read-and-create-calendar-events/backend/node) in node.
 
