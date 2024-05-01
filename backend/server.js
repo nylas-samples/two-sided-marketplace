@@ -1,15 +1,10 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const route = require('./route');
-const db = require('./db');
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import route from './route';
+import db from './db';
 
-const Nylas = require('nylas');
-const { WebhookTriggers } = require('nylas/lib/models/webhook');
-const { openWebhookTunnel } = require('nylas/lib/services/tunnel');
-const { Scope } = require('nylas/lib/models/connect');
-
-dotenv.config();
+import Nylas from 'nylas';
 
 const app = express();
 app.use(express.json());
@@ -19,30 +14,6 @@ app.use(cors());
 
 // The port the express app will run on
 const port = 9000;
-
-// Initialize the Nylas SDK using the client credentials
-Nylas.config({
-  clientId: process.env.NYLAS_CLIENT_ID,
-  clientSecret: process.env.NYLAS_CLIENT_SECRET,
-  apiServer: process.env.NYLAS_API_SERVER,
-});
-
-// Start the Nylas webhook
-openWebhookTunnel({
-  // Handle when a new message is created (sent)
-  onMessage: function handleEvent(delta) {
-    switch (delta.type) {
-      case WebhookTriggers.EventCreated:
-        console.log(
-          'Webhook trigger received, event created. Details: ',
-          JSON.stringify(delta.objectData, undefined, 2)
-        );
-        break;
-    }
-  },
-}).then((webhookDetails) => {
-  console.log('Webhook tunnel registered. Webhook ID: ' + webhookDetails.id);
-});
 
 // Middleware to check if the user is authenticated
 // TODO: Switch to using a token-based authentication scheme
