@@ -1,18 +1,25 @@
-const { default: Event } = require('nylas/lib/models/event');
-const Nylas = require('nylas');
-const crypto = require('crypto');
-const bcrypt = require("bcrypt");
-const db = require("./db");
-const { encrypt, decrypt } = require('./encrypt');
-// TODO: Bring in dotenv
+import 'dotenv/config';
+import Nylas from 'nylas';
+import crypto from 'crypto';
+import bcrypt from "bcrypt";
+import db from "./db";
+import { encrypt, decrypt } from './encrypt';
 
-const { default: Calendar } = require("nylas/lib/models/calendar");
-const StreamChat = require("stream-chat").StreamChat;
+import { Calendar } from "nylas/lib/models/calendar";
+import { StreamChat } from "stream-chat";
+
+// Initialize the Nylas SDK using the client credentials
+const NylasConfig = {
+  apiKey: process.env.NYLAS_API_KEY,
+  apiUri: process.env.NYLAS_API_REGION_URI,
+};
+
+const nylas = new Nylas(NylasConfig);
 
 exports.readEvent = async (req, res) => {
   const user = res.locals.user;
   const eventId = req.params.id;
-  let accessToken = null;
+  let grantId = null;
 
   if(user.user_type === 'patient') {
     db.get(
@@ -26,10 +33,16 @@ exports.readEvent = async (req, res) => {
           return;
         }
 
-        const accessToken = decrypt(row.access_token);
+        const grantId = decrypt(row.grant_id);
 
-        const events = await Nylas.with(accessToken).events.find(eventId);
-        return res.status(200).json(events);
+        const events = await nylas.events.find({
+          identifier: grantId,
+          event_id: eventId,
+          query_params={
+            "calendar_id": row.calendar_id
+          }
+        })
+        return res.status(200).json(events.data);
     })
   }
 };
@@ -47,10 +60,15 @@ exports.readProviderEvents = async (req, res, options = {}) => {
         return;
       }
 
-      const accessToken = decrypt(row.access_token);
+      const grantId = decrypt(row.grant_id);
 
       if (user.user_type === 'provider') {
-        events = await Nylas.with(accessToken).events.list();
+        events = await nylas.events.list({
+          identifier: grantId,
+          queryParams: {
+              calendarId: row.calendar_id,
+          }
+        });
       }
 
       if (user.user_type === 'patient' && options.searchAvailability) {
@@ -62,9 +80,15 @@ exports.readProviderEvents = async (req, res, options = {}) => {
           limit,
           busy: false,
         }
-        events = await Nylas.with(accessToken).events.list(searchOptions)
+        events = await nylas.events.list({
+          identifier: grantId,
+          queryParams: {
+            calendarId: row.calendar_id,
+            ...searchOptions
+          }
+        });
       }
-      return res.status(200).json(events);
+      return res.status(200).json(events.data);
   })
 }
 
@@ -96,14 +120,20 @@ exports.readProvidersAvailability = async (req, res, options = {}) => {
         }
         
         const allProvidersAvailability = await Promise.all(rows.map(async provider => {
-          const accessToken = decrypt(provider.access_token);
-          events = await Nylas.with(accessToken).events.list(searchOptions);
+          const grantId = decrypt(provider.grant_id);
+          events = await nylas.events.list({
+            identifier: grantId,
+            queryParams: {
+              calendarId: provider.calendar_id,
+              ...searchOptions
+            }
+          });
 
-          delete provider.access_token;
+          delete provider.grant_id;
 
           return ({
             ...provider,
-            availability: events
+            availability: events.data
           })
         }))
         
@@ -127,24 +157,26 @@ exports.readEvents = async (req, res) => {
     }
 
     const events = await Promise.all(rows.map(async data => {
-      const { access_token, event_id } = data;
-      const event = await Nylas.with(decrypt(access_token))
+      const { grant_id, event_id } = data;
+      const event = nylas.events.list({ identifier: decrypt(grant_id) })
         .events.find(event_id)
         .then((events) => events);
 
       return event;
     }));
 
-    return res.status(200).json(events);
+    return res.status(200).json(events.data);
   })
 };
 
 exports.readCalendars = async (req, res) => {
   const user = res.locals.user;
 
-  const calendars = await Nylas.with(user.accessToken).calendars.list()
+  const calendars = await nylas.calendars.list({
+    identifier: user.grant_id,
+  });
 
-  return res.status(200).json(calendars);
+  return res.status(200).json(calendars.data);
 };
 
 exports.createAvailability = async (req, res) => {
@@ -168,28 +200,33 @@ exports.createAvailability = async (req, res) => {
         return;
       }
 
-      const { access_token, calendar_id } = row;
+      const { grant_id, calendar_id } = row;
 
-      if (!access_token || !title || !startTime || !endTime) {
+      if (!grant_id || !title || !startTime || !endTime) {
         return res.status(400).json({
           message:
             'Missing required fields: providerId, title, startTime or endTime',
         });
       }
 
-      const nylas = Nylas.with(decrypt(access_token));
-      const event = new Event(nylas);
-
-      event.calendarId = calendar_id;
-      event.title = title;
-      event.description = description;
-      event.when.startTime = startTime;
-      event.when.endTime = endTime;
-      event.busy = isBusy || false;
+      const event = await nylas.events.create({
+        identifier: decrypt(grant_id),
+        requestBody: {
+          calendarId: calendar_id,
+          title: title,
+          description: description,
+          when: {
+            startTime,
+            endTime            
+          },
+          busy: isBusy || false;
+        },
+        queryParams: {
+          calendarId: calendar_id,
+        },
+      });
       
-      const savedEvent = await event.save();
-
-      res.status(200).json(savedEvent);
+      res.status(200).json(event.data);
       return;
     }
   )
@@ -220,10 +257,15 @@ exports.modifyAvailability = async (req, res) => {
         return;
       }
 
-      const accessToken = row.access_token;
-      let nylas = Nylas.with(decrypt(accessToken));
-
-      const event = await nylas.events.find(id);
+      const grantId = row.grant_id;
+      
+      const event = await nylas.events.find({
+        identifier: decrypt(grantId),
+        event_id: eventId,
+        query_params={
+          "calendar_id": row.calendar_id
+        }
+      }).data
 
       event.title = title || event.title;
       event.description = description || event.description;
@@ -258,27 +300,34 @@ exports.createAppointment = async (req, res) => {
         return;
       }
 
-      const { access_token, calendar_id } = row;
+      const { grant_id, calendar_id } = row;
 
-      if (!access_token || !title || !startTime || !endTime) {
+      if (!grant_id || !title || !startTime || !endTime) {
         return res.status(400).json({
           message:
             'Missing required fields: providerId, title, startTime or endTime',
         });
       }
 
-      const nylas = Nylas.with(decrypt(access_token));
-      const event = new Event(nylas);
+      const event = await nylas.events.create({
+        identifier: decrypt(grant_id),
+        requestBody: {
+          calendarId: calendar_id,
+          title: title,
+          description: description,
+          when: {
+            startTime,
+            endTime            
+          },
+          busy: true;
+        },
+        queryParams: {
+          calendarId: calendar_id,
+        },
+      });
 
-      event.calendarId = calendar_id;
-      event.title = title;
-      event.description = description;
-      event.when.startTime = startTime;
-      event.when.endTime = endTime;
-      // NOTE: Setting free/busy to search for availability of provider
-      event.busy = true;
-      
-      const savedEvent = await event.save();
+
+      const savedEvent = event.data
 
       const sql =
       "INSERT INTO events (user_id, calendar_id, event_id) VALUES (?,?,?)";
@@ -517,7 +566,7 @@ exports.deleteUser = (req, res) => {
 exports.deleteAppointment = async (req, res) => {
   const user = res.locals.user;
   const eventId = req.params.eventId;
-  let accessToken = user.access_token
+  let grantId = user.grant_Id
 
   if(user.user_type === 'patient') {
     db.get(
@@ -531,13 +580,17 @@ exports.deleteAppointment = async (req, res) => {
           return;
         }
 
-        accessToken = rows.access_token;
+        grantId = rows.grant_id;
       }
     )
-
-    let nylas = Nylas.with(decrypt(user.accessToken));
     
-    const result = await nylas.events.delete([eventId]);
+    const result = await nylas.events.destroy({
+      identifier: decrypt(grantId),
+      eventId,
+      queryParams: {
+        calendarId: user.calendar_id
+      }
+    });
 
     db.run("DELETE FROM events WHERE event_id = ?", [eventId], function (err) {
       if (err) {
@@ -573,22 +626,31 @@ exports.updateAppointment = async (req, res) => {
           return;
         }
 
-        const accessToken = row.access_token;
-        let nylas = Nylas.with(decrypt(accessToken));
-
-        const event = await nylas.events.find(id);
-
-        console.log(538, event);
+        const grantId = row.grant_id;
+        
+        const event = await nylas.events.update({
+          identifier: decrypt(grant_id),
+          eventId: id,
+          requestBody: {
+            calendarId: calendar_id,
+            title: title,
+            description: description,
+            when: {
+              startTime,
+              endTime            
+            },
+            busy: true,
+            visibility = null
+          },
+          queryParams: {
+            calendarId: calendar_id,
+          },
+        });
+  
+  
+        const savedEvent = event.data
       
-        event.title = title || event.title;
-        event.description = description || event.description;
-        event.when.startTime = startTime || event.when.startTime;
-        event.when.endTime = endTime || event.when.endTime;
-        // TODO: Why is this required?
-        event.visibility = null;
-      
-        await event.save();
-        return res.status(200).json(event);
+        return res.status(200).json(savedEvent);
     })
   }
 }

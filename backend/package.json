@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Demo using the Nylas Node SDK and ExpressJS.",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "npx nodemon server.js",
     "seed-provider": "node seed-provider.js",
@@ -27,7 +28,7 @@
     "express": "^4.14.0",
     "getstream": "^8.1.2",
     "mkdirp": "^1.0.4",
-    "nylas": "6.8.0",
+    "nylas": "^7.2.1",
     "request": "^2.74.0",
     "sqlite3": "5.1.6",
     "stream-chat": "^8.6.0",

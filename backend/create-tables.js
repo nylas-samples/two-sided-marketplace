@@ -26,6 +26,7 @@ exports.createTables = (db) => {
          user_id TEXT PRIMARY KEY NOT NULL, \
          account_id TEXT NOT NULL, \
          access_token TEXT NOT NULL, \
+         grant_id TEXT NOT NULL, \
          calendar_id TEXT NOT NULL, \
          FOREIGN KEY (user_id) REFERENCES users(user_id) \
          FOREIGN KEY (calendar_id) REFERENCES calendars(calendar_id) \
